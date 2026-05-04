@@ -436,21 +436,26 @@ var Store = {
 
   // 하루 데이터 읽기 (localStorage 캐시)
   get: function(ds){
-    try{
-      var raw = LS.getItem('d_'+ds);
-      if(raw){
+    // 구버전 키(diet_) 및 신버전 키(d_) 모두 확인
+    var raw = null;
+    try{ raw = LS.getItem('d_'+ds); }catch(e){}
+    if(!raw){ try{ raw = LS.getItem('diet_'+ds); }catch(e){} }
+    if(raw){
+      try{
         var o = JSON.parse(raw);
         var d = emptyDay();
-        d.c  = o.c  || {};
-        d.w  = o.w  !== undefined ? o.w  : null;
-        d.s  = o.s  || 0;
-        d.cy = o.cy || null;
-        d.st = o.st || null;
-        d.m  = o.m  ? {b:o.m.b||'',l:o.m.l||'',d:o.m.d||'',n:o.m.n||''} : {b:'',l:'',d:'',n:''};
-        d.mo = o.mo || '';
+        // 신버전 압축 키 우선, 구버전 긴 키 폴백
+        d.c  = o.c  || o.checks || {};
+        d.w  = o.w  !== undefined ? o.w  : (o.weight !== undefined ? o.weight : null);
+        d.s  = o.s  !== undefined ? o.s  : (o.score  || 0);
+        d.cy = o.cy || o.cycle  || null;
+        d.st = o.st !== undefined ? o.st : (o.stress || null);
+        var meals = o.m || o.meals || {};
+        d.m  = {b:meals.b||'',l:meals.l||'',d:meals.d||'',n:meals.n||''};
+        d.mo = o.mo || o.memo || '';
         return d;
-      }
-    }catch(e){}
+      }catch(e){}
+    }
     return emptyDay();
   },
 
@@ -526,7 +531,12 @@ var Store = {
         var keys = Object.keys(res.data);
         count = keys.length;
         keys.forEach(function(k){
-          try{ LS.setItem('d_'+k, JSON.stringify(res.data[k])); }catch(e){}
+          try{
+            var raw = res.data[k];
+            // Sheets의 date 컬럼이 날짜 형식인지 확인
+            var dateKey = String(k).trim();
+            LS.setItem('d_'+dateKey, JSON.stringify(raw));
+          }catch(e){}
         });
       }
       if(onDone) onDone(!!(res && res.ok), count);
