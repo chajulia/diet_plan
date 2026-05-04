@@ -475,8 +475,22 @@ var Store = {
     // 1. localStorage 즉시 저장
     try { LS.setItem('diet_'+dateStr, JSON.stringify(data)); } catch(e){}
 
-    // 2. Google Sheets JSONP 저장
-    var payload = encodeURIComponent(JSON.stringify(data));
+    // 2. Google Sheets JSONP 저장 — payload 압축 (URL 길이 제한 대응)
+    var slim = {
+      c: data.checks || {},
+      w: data.weight || null,
+      s: data.score  || 0,
+      cy: data.cycle  || null,
+      st: data.stress || null,
+      m: {
+        b: (data.meals && data.meals.b || '').slice(0,80),
+        l: (data.meals && data.meals.l || '').slice(0,80),
+        d: (data.meals && data.meals.d || '').slice(0,80),
+        n: (data.meals && data.meals.n || '').slice(0,80)
+      },
+      memo: (data.memo || '').slice(0,100)
+    };
+    var payload = encodeURIComponent(JSON.stringify(slim));
     var url = SHEETS_URL
       + '?action=save'
       + '&date=' + encodeURIComponent(dateStr)
@@ -535,7 +549,20 @@ var Store = {
       if(res && res.ok && res.data){
         var keys = Object.keys(res.data);
         keys.forEach(function(k){
-          try { LS.setItem('diet_'+k, JSON.stringify(res.data[k])); } catch(e){}
+          try {
+            var d = res.data[k];
+            // 압축 키를 전체 키로 복원해서 저장
+            var expanded = {
+              checks: d.c  || d.checks || {},
+              meals:  d.m  ? {b:d.m.b||'',l:d.m.l||'',d:d.m.d||'',n:d.m.n||''} : (d.meals || {b:'',l:'',d:'',n:''}),
+              weight: d.w  !== undefined ? d.w  : (d.weight || null),
+              cycle:  d.cy !== undefined ? d.cy : (d.cycle  || null),
+              stress: d.st !== undefined ? d.st : (d.stress || null),
+              memo:   d.memo || '',
+              score:  d.s  !== undefined ? d.s  : (d.score  || 0)
+            };
+            LS.setItem('diet_'+k, JSON.stringify(expanded));
+          } catch(e){}
         });
         if(onDone) onDone(true, keys.length);
       } else {
@@ -560,14 +587,18 @@ var Store = {
       var raw = LS.getItem('diet_'+dateStr);
       if(raw){
         var o = JSON.parse(raw);
-        o.checks = o.checks||{};
-        o.meals  = o.meals||{b:'',l:'',d:'',n:''};
-        o.weight = o.weight||null;
-        o.cycle  = o.cycle||null;
-        o.stress = o.stress||null;
-        o.memo   = o.memo||'';
-        o.score  = o.score||0;
-        return o;
+        // 압축 키(c,w,s,cy,st,m) 또는 기존 키 모두 지원
+        var checks = o.checks || o.c || {};
+        var meals  = o.meals  || o.m  || {b:'',l:'',d:'',n:''};
+        return {
+          checks: checks,
+          meals:  {b:meals.b||'',l:meals.l||'',d:meals.d||'',n:meals.n||''},
+          weight: o.weight !== undefined ? o.weight : (o.w || null),
+          cycle:  o.cycle  !== undefined ? o.cycle  : (o.cy || null),
+          stress: o.stress !== undefined ? o.stress : (o.st || null),
+          memo:   o.memo   !== undefined ? o.memo   : (o.memo || ''),
+          score:  o.score  !== undefined ? o.score  : (o.s || 0)
+        };
       }
     } catch(e){}
     return {checks:{},meals:{b:'',l:'',d:'',n:''},weight:null,cycle:null,stress:null,memo:'',score:0};
