@@ -387,49 +387,54 @@ var S = (function(){
   }
 })();
 
-// Google Sheets에 하루 데이터 저장
+// Google Sheets에 하루 데이터 저장 (GET 방식 — CORS 우회)
 function sheetsSave(dateStr, payload){
   try{
-    fetch(SHEETS_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({date: dateStr, payload: payload})
-    }).then(function(r){ return r.json(); }).then(function(res){
-      var ind = document.getElementById('save-indicator');
-      if(ind){
-        if(res.ok){
-          ind.textContent = '저장됨 ✓ (구글 시트)';
-          ind.style.color = 'var(--ac)';
-        } else {
-          ind.textContent = '저장 실패: ' + (res.error||'');
-          ind.style.color = 'var(--red)';
+    var encoded = encodeURIComponent(JSON.stringify(payload));
+    var url = SHEETS_URL + '?action=save&date=' + encodeURIComponent(dateStr) + '&payload=' + encoded;
+    var ind = document.getElementById('save-indicator');
+    if(ind){ ind.textContent = '저장 중...'; ind.style.color = 'var(--mu)'; }
+    fetch(url)
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if(ind){
+          if(res.ok){
+            ind.textContent = '저장됨 ✓ (구글 시트)';
+            ind.style.color = 'var(--ac)';
+          } else {
+            ind.textContent = '저장 실패: ' + (res.error||'알 수 없는 오류');
+            ind.style.color = 'var(--red)';
+          }
         }
-      }
-    }).catch(function(e){
-      var ind = document.getElementById('save-indicator');
-      if(ind){ ind.textContent = '저장 실패 (네트워크 오류)'; ind.style.color = 'var(--red)'; }
-    });
+      })
+      .catch(function(e){
+        if(ind){ ind.textContent = '네트워크 오류 — 로컬에만 저장됨'; ind.style.color = 'var(--ac3)'; }
+      });
   }catch(e){ console.error('sheetsSave error:', e); }
 }
 
 // 앱 시작 시 Google Sheets에서 전체 데이터 로드 → localStorage 동기화
-var _sheetsLoaded = false;
 function loadFromSheets(callback){
-  fetch(SHEETS_URL)
+  var url = SHEETS_URL + '?action=load';
+  var ind = document.getElementById('save-indicator');
+  if(ind){ ind.textContent = '데이터 불러오는 중...'; ind.style.color = 'var(--mu)'; }
+  fetch(url)
     .then(function(r){ return r.json(); })
     .then(function(res){
       if(res.ok && res.data){
-        // Sheets 데이터를 localStorage에 동기화
-        Object.keys(res.data).forEach(function(k){
+        var keys = Object.keys(res.data);
+        keys.forEach(function(k){
           try{ S.setItem('diet_'+k, JSON.stringify(res.data[k])); }catch(e){}
         });
+        if(ind){ ind.textContent = keys.length + '일치 데이터 로드됨'; ind.style.color = 'var(--ac)'; }
+        setTimeout(function(){ if(ind) ind.textContent=''; }, 2000);
       }
-      _sheetsLoaded = true;
       if(callback) callback();
     })
     .catch(function(e){
       console.warn('Sheets load failed, using local cache:', e);
-      _sheetsLoaded = true;
+      if(ind){ ind.textContent = '오프라인 — 로컬 캐시 사용 중'; ind.style.color = 'var(--ac3)'; }
+      setTimeout(function(){ if(ind) ind.textContent=''; }, 2000);
       if(callback) callback();
     });
 }
