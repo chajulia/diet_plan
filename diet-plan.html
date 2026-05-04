@@ -408,7 +408,7 @@ body{background:var(--bg);color:var(--tx);font-family:-apple-system,'Apple SD Go
 // c:checks, w:weight, s:score, cy:cycle, st:stress, m:meals, mo:memo
 // 이 스키마가 localStorage와 Sheets 모두에 동일하게 적용됨
 
-var SHEETS = 'https://script.google.com/macros/s/AKfycbz0dR9_HsOKkRpnmflaHJG705mdAmzut0Qfpd4z96wzLAbNnRcE4ubSnx2vTfC1w2WY/exec';
+var SHEETS = 'https://script.google.com/macros/s/AKfycbz24mf6MPfr68ASP-MpeQaRrdNaFXrYeg4AklEMKIwtG87sL_cCAMr3QcPw2cZRYhwG/exec';
 var START_KG = 59, GOAL_KG = 49, GOAL_DAYS = 180;
 var CHK = ['breakfast','snack','nonight','nocarb','nobinge'];
 var DAY_NAMES = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
@@ -851,6 +851,28 @@ Store.load(function(ok, count){
   sind(ok ? count+'일치 로드됨' : '오프라인 모드', ok?'var(--ac)':'var(--ac3)');
   setTimeout(function(){ sind(''); },2000);
   initCheck();
+});
+
+// ── 포커스 복귀 시 재동기화 (다른 앱/탭에서 돌아올 때) ──
+var _lastSync = Date.now();
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState !== 'visible') return;
+  // 마지막 동기화로부터 30초 이상 지났을 때만 재로드
+  var now = Date.now();
+  if(now - _lastSync < 30000) return;
+  _lastSync = now;
+  sind('동기화 중...','var(--mu)');
+  Store.load(function(ok){
+    sind(ok?'동기화됨 ✓':'오프라인 모드', ok?'var(--ac)':'var(--ac3)');
+    setTimeout(function(){ sind(''); },1500);
+    // 현재 활성 탭에 맞게 화면 갱신
+    var activeTab = document.querySelector('.nb.on');
+    if(activeTab){
+      var id = activeTab.id;
+      if(id==='nb-check') initCheck();
+      if(id==='nb-record') renderRecord();
+    }
+  });
 });
 
 // ════════════════════════════════
