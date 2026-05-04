@@ -140,6 +140,7 @@ body{background:var(--bg);color:var(--tx);font-family:-apple-system,'Apple SD Go
       </div>
     </div>
     <div class="score-bar-bg"><div id="score-bar" class="score-bar"></div></div>
+    <div id="save-indicator" style="font-size:10px;color:var(--mu);text-align:right;margin-top:6px;min-height:14px;"></div>
   </div>
 
   <div class="card">
@@ -374,13 +375,70 @@ body{background:var(--bg);color:var(--tx);font-family:-apple-system,'Apple SD Go
 (function(){
 
 // ── 스토리지: localStorage 불가 시 메모리로 폴백 ──
+// ── Google Sheets 기반 영구 저장소 ──
+var SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzHEt5XvbHxLnZKEAHdUZVZ9q-C0AWZRBD5M1S4zIfCGi84V34h7rQRQBd02bkxRqKv/exec';
+
+// localStorage는 캐시(빠른 읽기)용으로만 사용
 var S = (function(){
   try{ localStorage.setItem('_t','1'); localStorage.removeItem('_t'); return localStorage; }
   catch(e){
     var m={};
-    return { getItem:function(k){return m[k]===undefined?null:m[k];}, setItem:function(k,v){m[k]=v;}, removeItem:function(k){delete m[k];} };
+    return { getItem:function(k){return m.hasOwnProperty(k)?m[k]:null;}, setItem:function(k,v){m[k]=String(v);}, removeItem:function(k){delete m[k];} };
   }
 })();
+
+// Google Sheets에 하루 데이터 저장
+function sheetsSave(dateStr, payload){
+  try{
+    fetch(SHEETS_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({date: dateStr, payload: payload})
+    }).then(function(r){ return r.json(); }).then(function(res){
+      var ind = document.getElementById('save-indicator');
+      if(ind){
+        if(res.ok){
+          ind.textContent = '저장됨 ✓ (구글 시트)';
+          ind.style.color = 'var(--ac)';
+        } else {
+          ind.textContent = '저장 실패: ' + (res.error||'');
+          ind.style.color = 'var(--red)';
+        }
+      }
+    }).catch(function(e){
+      var ind = document.getElementById('save-indicator');
+      if(ind){ ind.textContent = '저장 실패 (네트워크 오류)'; ind.style.color = 'var(--red)'; }
+    });
+  }catch(e){ console.error('sheetsSave error:', e); }
+}
+
+// 앱 시작 시 Google Sheets에서 전체 데이터 로드 → localStorage 동기화
+var _sheetsLoaded = false;
+function loadFromSheets(callback){
+  fetch(SHEETS_URL)
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if(res.ok && res.data){
+        // Sheets 데이터를 localStorage에 동기화
+        Object.keys(res.data).forEach(function(k){
+          try{ S.setItem('diet_'+k, JSON.stringify(res.data[k])); }catch(e){}
+        });
+      }
+      _sheetsLoaded = true;
+      if(callback) callback();
+    })
+    .catch(function(e){
+      console.warn('Sheets load failed, using local cache:', e);
+      _sheetsLoaded = true;
+      if(callback) callback();
+    });
+}
+
+function verifiedSet(k, v){
+  try{ S.setItem(k, v); return true; }catch(e){ return false; }
+}
+
+var _storageWorking = true;
 
 var START_KG=59, GOAL_KG=49, GOAL_DAYS=180;
 var CHK=['breakfast','snack','nonight','nocarb','nobinge'];
@@ -397,7 +455,10 @@ function load(d){
 function save(d,o){
   var done=CHK.filter(function(k){return !!o.checks[k];}).length;
   o.score=Math.round(done/CHK.length*100);
-  try{ S.setItem(key(d),JSON.stringify(o)); }catch(e){}
+  // 1. localStorage에 즉시 저장 (빠른 응답)
+  verifiedSet(key(d), JSON.stringify(o));
+  // 2. Google Sheets에 영구 저장 (비동기)
+  sheetsSave(d, o);
 }
 function td(){ return load(today()); }
 function std(o){ save(today(),o); }
@@ -643,7 +704,15 @@ function loadMemo(){
 function initCheck(){
   renderChecks(); renderWtDiff(); loadMeals(); renderCycle(); renderStress(); renderCondGuide(); loadMemo();
 }
-initCheck();
+
+// 앱 시작: 구글 시트에서 데이터 로드 후 화면 초기화
+var ind = document.getElementById('save-indicator');
+if(ind){ ind.textContent = '데이터 불러오는 중...'; ind.style.color = 'var(--mu)'; }
+loadFromSheets(function(){
+  initCheck();
+  var ind2 = document.getElementById('save-indicator');
+  if(ind2){ ind2.textContent = ''; }
+});
 
 // ── 기록 탭 ──
 function renderRecord(){
@@ -809,7 +878,7 @@ function getKey(){ try{return S.getItem('claude_api_key')||'';}catch(e){return '
     var inp=document.getElementById('api-inp'); if(!inp) return;
     var v=inp.value.trim();
     if(!v||v.indexOf('sk-ant-')!==0){ alert('올바른 API 키 형식이 아닙니다 (sk-ant-로 시작)'); return; }
-    try{S.setItem('claude_api_key',v);}catch(e){}
+    verifiedSet('claude_api_key',v);
     initApiUI();
   });
 })();
